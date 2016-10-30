@@ -1,19 +1,23 @@
 ﻿<#
   Skaner urządzeń sklepowych, w szczególności wag. Dane z poprzednich skanów trzyma w plikach xml. 
-  Dla urządzeń niewidocznych od 4 godzin tworzy zgłoszenie w HelpDesku.
+  Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HD.
   Resetuje stan skanowań o 6 rano, albo jeśli nie był uruchamiany od 2 godzin.
   Przechowuje listę zgłoszonych adresow, aby nie dublować zgłoszeń. 
   
-  Do zrobienia: logika usuwająca adresy z listy zgłoszonych po przywróceniu działania.
+  Autor: piotrbanas@xper.pl
 #>
 
 import-module PBFunkcje
-set-location C:\Skrypty\wagi\121
 $czas = Get-Date
+$sklep = 10
+$sciezka = "C:\skrypty\wagi\$sklep"
+$xmlsukces = "$sciezka\sukces.xml"
+$xmlfail = "$sciezka\failed.xml"
+set-location $sciezka
 
 function new-lista {
 
-    $IPs = Get-Content C:\Skrypty\wagi\121\wagi121.txt
+    $IPs = Get-Content $sciezka\wagi$sklep.txt
     $sukces = ForEach ($IP in $IPs) { 
         $props = @{
               Adres = $IP
@@ -23,9 +27,9 @@ function new-lista {
     $obj = New-Object -TypeName psobject -Property $props
     Write-Output $obj
     }
-    $sukces | Export-Clixml -Path 'C:\skrypty\wagi\121\sukces.xml'
-
+    $sukces | Export-Clixml -Path $xmlsukces
 } # end new-lista
+
 
 function new-skan {
   param(
@@ -59,62 +63,69 @@ function new-skan {
   return $txp
 } # end new-skan
 
-# Rano resetuj stan urządzeń albo jeśli nie było aktualizacji od 2 godzin
-if  ($czas.Hour -eq 6 -or (get-item .\failed.xml).LastWriteTime -lt  (Get-Date).AddHours(-2) ) {
-  remove-item -Path 'C:\Skrypty\wagi\121\sukces.xml' -Force
-  remove-item -Path 'C:\Skrypty\wagi\121\failed.xml' -Force
+# Rano resetuj stan urządzeń albo jeli nie było aktualizacji od 2 godzin
+
+if  ($czas.Hour -eq 6 -or (get-item $sciezka\failed.xml).LastWriteTime -lt  (Get-Date).AddHours(-2) ) {
+  remove-item -Path $xmlsukces -Force
+  remove-item -Path $xmlfail -Force
 
   # Generuję nową listę z pliku tekstowego
   new-lista
-  
-  # skanuję adresy z nowj listy
-  new-skan -lista 'C:\Skrypty\wagi\121\sukces.xml'
+  # skanuję adresy z nowej listy
+  new-skan -lista $xmlsukces
 
   # rozbijam adresy na sukces/failed
-  $txp | Where-Object -property Status -eq 'OK' | Export-Clixml 'C:\Skrypty\wagi\121\sukces.xml' -Encoding UTF8
-  $txp | Where-Object -property Status -NE 'OK' | Export-Clixml 'C:\Skrypty\wagi\121\failed.xml' -Encoding UTF8
+  $txp | Where-Object -property Status -eq 'OK' | Export-Clixml $xmlsukces -Encoding UTF8
+  $txp | Where-Object -property Status -NE 'OK' | Export-Clixml $xmlfail -Encoding UTF8
 
-} # end if
+}
 
  # następne skany:
 else {
-  # skanuję adresy, które poprzednio trafiły do failed
-  new-skan -lista 'C:\Skrypty\wagi\121\failed.xml'
-  # jeśli któreś zaczeły odpowiadać, zwracam je do listy sukces
+  # skanuję adresy, które trafiły w poprzednim skanowaniu do failed
+  new-skan -lista $xmlfail
+  # jeśli któreś zaczeły odpowiadać, zwaracm je do listy sukces
   $txs = $txp | Where-Object -property Status -eq 'OK'
-  $tx0 = Import-Clixml .\sukces.xml
+  $tx0 = Import-Clixml $xmlsukces
   $tx0 += $txs
-  $tx0 | export-clixml 'C:\Skrypty\wagi\121\sukces.xml' -Encoding utf8
+  $tx0 | export-clixml $xmlsukces -Encoding utf8
   # nadpisuję listę failed (pozostawiam oryginalny czas skanowania)
-  $txp | Where-Object Status -EQ 'Błąd' | export-clixml .\failed.xml -Encoding utf8
+  $txp | Where-Object Status -EQ 'Błąd' | export-clixml $xmlfail -Encoding utf8
   
   # skanuję i nadpisuję nową listę sukces
-  new-skan -lista 'C:\Skrypty\wagi\121\sukces.xml'
-  $txp | Where-Object -property Status -eq 'OK' | Export-Clixml  .\sukces.xml -Encoding UTF8
+  new-skan -lista $xmlsukces
+  $txp | Where-Object -property Status -eq 'OK' | Export-Clixml $xmlsukces -Encoding UTF8
   # dopisuję nowe faile do listy failed
-  $txf = Import-Clixml .\failed.xml
+  $txf = Import-Clixml $xmlfail
   $txf += $txp | Where-Object status -EQ 'Błąd'
-  $txf | Export-Clixml  .\failed.xml -Encoding UTF8
-} # end else
+  $txf | Export-Clixml  $xmlfail -Encoding UTF8
+  
+}
+
 
 # z failed wybieram adresy, które trafiły tam ponad 4 godziny temu
-$failed = Import-Clixml 'C:\Skrypty\wagi\121\failed.xml' 
-$doZgloszenia = $failed | Where-Object {$_.Czas -lt (Get-Date).AddHours(-4)}
+$failed = Import-Clixml $xmlfail 
+$doZgloszenia = $failed | Where-Object {$_.Czas -lt (Get-Date).AddHours(-3)}
 
 # tworzę treść emaila z pominięciem zgłoszonych w przeszłosci
-$tresc = $doZgloszenia | where {$_.Adres -inotin (Import-Csv .\zgloszone.csv).adres}
+$tresc = $doZgloszenia | Where-Object {$_.Adres -inotin (Import-Csv $sciezka\zgloszone.csv).adres}
    
 $t = $tresc | ForEach-Object {
   $a = $_.Adres
   $c = $_.czas
   "`nUrządzenie $a nie odpowiada od conajmniej $c."
   # zgłoszone adresy zapisuję w pliku
-  Export-Csv -InputObject $_ -Append -Path .\zgloszone.csv -NoTypeInformation -Encoding UTF8 -Force
-} # end foreach-object
+  Export-Csv -InputObject $_ -Append -Path $sciezka\zgloszone.csv -NoTypeInformation -Encoding UTF8 -Force
+}
 
 $t += "`nProszę o sprawdzić urządzenia oraz media połączeniowe."
 
 # wysyłam email tworzący zgłoszenie w HelpDesku
 if ($tresc) {
-Send-smtp -nadawca 'kontroler@domena.com.pl' -odbiorca 'helpdesk@domena.com.pl' -SerwerSMTP 'mail.domena.com.pl' -temat '[121] Błąd łączności z urządzeniem sklepowym' -tresc $t
+Send-smtp -nadawca 'monitoring@xper.pl' -odbiorca 'helpdesk@xper.pl' -temat "[$sklep] Błąd łączności z urządzeniem sklepowym" -tresc $t
 }
+
+# sprawdzam zgłoszone wcześniej
+Import-CSV $sciezka\zgloszone.csv | Export-Clixml $sciezka\zgl.xml
+new-skan -lista $sciezka\zgl.xml 
+$txp | Where-Object Status -NE 'OK' | Export-Csv -Path $sciezka\zgloszone.csv -NoTypeInformation -Encoding UTF8 -Force
