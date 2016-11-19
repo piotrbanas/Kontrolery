@@ -1,6 +1,6 @@
 ﻿<#
-  Skaner urządzeń sklepowych, w szczególności wag. Dane z poprzednich skanów trzyma w plikach xml. 
-  Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HD.
+  Skaner sieciowy urządzeń. Dane z poprzednich skanów trzyma w plikach xml. 
+  Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HelpDesku.
   Resetuje stan skanowań o 6 rano, albo jeśli nie był uruchamiany od 2 godzin.
   Przechowuje listę zgłoszonych adresow, aby nie dublować zgłoszeń. 
   
