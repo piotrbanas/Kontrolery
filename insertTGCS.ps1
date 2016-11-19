@@ -1,50 +1,89 @@
-﻿<# 
-   Narzędzie codziennej podmiany nazw artykułów w systemie IBM TGCS
-   Kontakt piotrbanas@xper.pl
-   Wymaga modułu PBFunkcje.
-   Matryca podmiany z pliku csv.
+﻿<#
+    .SYNOPSIS
+    Narzędzie codziennej podmiany nazw artykułów w systemie IBM TGCS
+    .DESCRIPTION
+    Lokalna zmiana nazw artykułów 
+    .PARAMETER sklep
+    .EXAMPLE
+    .\insert.ps1 -sklep 54 -matryca .\matryca.csv
+    .NOTES
+    Autor: piotrbanas@xper.pl
+    .LINK
+    https://github.com/piotrbanas
 #>
-#Start-Transcript -Path C:\insert\transcript.txt
+[cmdletbinding(SupportsShouldProcess)]
+param (
+    [Parameter(Mandatory,
+     ValueFromPipeline,
+     Position = 0,
+     HelpMessage = 'Podaj numer sklepu')]
+     [ValidateSet(24, 35, 36, 54, 91, 102, 134)]
+     [int]$sklep,
 
-cd c:\insert
-Import-Module PBFunkcje
-new-mount -user 'Administrator' -mountpoint "\\192.168.32.54\D$\temp\home\as400\BOFO\Good" -mountname 'srv54' -passfile AdmPass.txt
+     [Parameter(Mandatory,
+     Position = 1,
+     HelpMessage = 'Podaj ścieżkę matrycy produktów')]
+     [ValidateScript({Test-Path $_})]
+     [string]$matryca
+)
+switch ($sklep)
+    {
+        24 {$nr=47}
+        35 {$nr=48}
+        36 {$nr=45}
+        54 {$nr=50}
+        91 {$nr=44}
+        102 {$nr=46}
+        134 {$nr=49}
+         
+        default {"Nieprawidłowy numer sklepu"
+                  Break
+                 }
+    } # End switch
 
+Import-Module PBunkcje -Verbose:$false | Out-Null
 $today = (Get-Date).ToString('yyyyMMdd')
 $temppath = 'C:\insert'
 $cennik = 'FHAUCP00.'+$today+'.1'
-$tempfile = $temppath+'\FHAUCP00_'+$today+'.tmp'
 $outfile = $temppath+'\FHAUCP00'
-Remove-Item $outfile -force
+Remove-Item $outfile -force -ErrorAction SilentlyContinue
 
-#Importuj kody kreskowe obserwowanych towarów i docelowe nazwy
-$matryca = "$temppath\matryca.csv"
+Write-Verbose "Mapuję folder cennika sklepu $sklep"
+$mountname = 'SRV'+$sklep
+new-mount -mountpoint "\\192.168.32.$nr\D$\temp\home\as400\BOFO\Good" -mountname $mountname -user "192.168.32.$nr\Administrator" -passfile $temppath\AdminPass.txt
+
+Write-Verbose "Importuję kody kreskowe obserwowanych towarów i docelowe nazwy z pliku $matryca"
 $mapping = Import-Csv $matryca -encoding OEM -Delimiter ","
 
-#Wyciągnij interesujące nas linie z cennika do pliku tymczasowego. Plik tymczasowy jest przy okazji logiem historii zmian.
-select-string $mapping.EAN -path srv54:\$cennik -Encoding OEM | select-object -ExpandProperty line | out-file $tempfile -Force
+#Wyciągnij interesujące nas linie z cennika 
+$match =  select-string $mapping.EAN -path "$mountname`:\$cennik" -Encoding OEM | select-object -ExpandProperty line
+If ($match) {
+Write-Verbose "Znalazłem następujące artykuły:"
+$match | ForEach-Object {Write-Verbose $_.substring(41,30)}
+}
 
-#Podmień nazwy w pliku tymczasowym
-$content = Get-Content $tempfile
+#Podmień nazwy
 
-foreach ($line in $content) {
+foreach ($line in $match) {
   foreach($map in $mapping) {
     if ($line -like "*$($map.EAN)*") { 
+      Write-Verbose "Koryguję nazwę artykułu $($map.EAN)"
       ($line).Replace($line.substring(41,30), $map.nazwa) | Out-File -Append -Filepath $outfile -encoding OEM
     }
   }
 }
 
-#Odmontuj cenniki
-Remove-PSDrive srv54
+Write-Verbose "Odmontowuję folder cennika"
+Remove-PSDrive $mountname | Out-Null
 
 #Wyślij plik wynikowy (jeśli istnieje) na ftp kontrolera kas
-$ftp = "ftp://user:pass@192.168.54.78/FHAUCP00"
+$ftp = "ftp://user:pas@192.168.$sklep.78/FHAUCP00"
 $webclient = New-Object System.Net.WebClient
 $uri = New-Object System.Uri($ftp)
-if ((Get-item $outfile).length -gt 0kb) {
-"Uploading $outfile on $today..." | tee -append $temppath\ftpLog.txt
-$webclient.UploadFile($uri, $outfile) | tee -append $temppath\ftpLog.txt}
-# Stop-Transcript
+if (Test-Path $outfile) {
+    Write-Verbose "Wysyłam $outfile do ftp kontrolera $sklep"
+    "Uploading $outfile on $today..." | tee -append $temppath\ftpLog.txt
+    $webclient.UploadFile($uri, $outfile) | tee -append $temppath\ftpLog.txt
+} else {Write-Verbose "Brak danych do wysyłki na ftp"}
 
 Write-EventLog -LogName Automatyzacja -Source 'PBFunkcje' -EventId 30 -Message 'Monitorowanie artykułów w cenniku'
