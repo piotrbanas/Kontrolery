@@ -7,12 +7,12 @@ Przykładowe skrypty sterujące, tzw. "kontrolery" wg. modelu narzędzi administ
 
 Przykładowe kontrolery:
 
-Panel Kontrolny - skrypt zbiera informacje o przepływach danych między systemami i publikuje je w postaci pliku html.
+<b>Panel Kontrolny</b> - skrypt zbiera informacje o przepływach danych między systemami i publikuje je w postaci pliku html.
 
-Procedura Awaryjna - skrypt konfiguruje awaryjny serwer aplikacji. Na koniec przeprowadza proste testy akceptacyjne (Pester), które wysyła do Administracji.
+<b>Procedura Awaryjna</b> - skrypt konfiguruje awaryjny serwer aplikacji. Na koniec przeprowadza proste testy akceptacyjne (Pester), które wysyła do Administracji. Zawiera skrypt wstępnie konfigurujący serwer za pomocą DSC (Desired State Configuration).
 
-Przechwytywanie Artykułów - narzędzie przechwytuje z trafiającego do sklepu cennika obserwowane akrtykuły i podmienia ich nazwy wg. wzoru.
+<b>Przechwytywanie Artykułów</b> - narzędzie przechwytuje z trafiającego do sklepu cennika obserwowane akrtykuły i podmienia ich nazwy wg. wzoru.
 
-Konfiguracja Plikowa - narzędzie umożliwia Operatorom masową konfigurację wag za pomocą plików xml wgrywanych do urządzeń. Wyświetla menu wyboru. Do porównania zawartości pików używa funkcji hashującej.
+<b>Konfiguracja Plikowa</b> - narzędzie umożliwia Operatorom masową konfigurację wag za pomocą plików xml wgrywanych do urządzeń. Wyświetla menu wyboru. Do porównania zawartości pików używa funkcji hashującej.
 
-Monitoring - Skaner sieciowy urządzeń. Dane z poprzednich skanów trzyma w plikach xml. Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HelpDesku.
+<b>Monitoring</b> - Skaner sieciowy urządzeń. Dane z poprzednich skanów trzyma w plikach xml. Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HelpDesku.
