@@ -81,7 +81,7 @@ Import-DscResource –ModuleName 'PSDesiredStateConfiguration'
         }
         group Admini {
             GroupName = 'Administratorzy'
-            MembersToInclude = @("adminlocal", "Administrator", "Vendor1")
+            MembersToInclude = @("localAdmin", "Administrator", "Vendor1")
             Ensure = "Present"
             DependsOn = '[user]Vendor1'
             
