@@ -7,7 +7,7 @@ Przykładowe skrypty sterujące, tzw. "kontrolery" wg. modelu narzędzi administ
 
 Przykładowe kontrolery:
 
-<b>Lab Testowy</b> - Skrypt generuje wirtualne laboratorium testowe z jednym kontrolerem domeny (ADDS, DNS i DHCP) i dwoma serwerami (IIS, serwer plików). Wymaga iso z obrazem systemu - przetestowane z Windows Server 2016 X64 Evaluation. Do zrobienia: wybór edycji - Desktop, Core, Nano (aktualnie tylko Core). Do zrobienia: wypełnianie Active Directory przykładowymi danymi.
+<b>Lab Testowy</b> - Skrypt generuje wirtualne laboratorium testowe z jednym kontrolerem domeny (ADDS, DNS i DHCP) i dwoma serwerami (IIS, serwer plików). Wymaga iso z obrazem systemu - przetestowane z Windows Server 2016 X64 Evaluation. Baza AD jest wypełniana przykładowymi danymi z names.csv (z fakenamegenerator). Do zrobienia: wybór edycji - Desktop, Core, Nano (aktualnie tylko Core).
 
 <b>Panel Kontrolny</b> - skrypt zbiera informacje o przepływach danych między systemami i publikuje je w postaci pliku html.
 
