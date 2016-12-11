@@ -3,6 +3,7 @@
     Skrypt generuje środowisko testowe
 .DESCRIPTION
     Skrypt generuje wirtualne laoratorium: Kontroler domeny, serwer ISS oraz serwer plików. Wszystkie w edycji Core.
+    Wypełnia bazę AD przykładowymi danymi z pliku names.csv
     Wymaga Hyper-V. 
     Wymaga modułu Convert-WindowsImage (doinstalowuje z Galerii).
     Wymaga WMF 5 (do zestawienia sesji po szynie wirtualizatora).
@@ -83,13 +84,17 @@ $convertWindowsImageParams = @{
     VHDPath = $VHDBasePath
     DiskLayout = "UEFI"
 }
+
+If (!(Test-Path $LabPath\$LabName\VHDs\base\LabServerBase.vhdx)){
 $VHDx = Convert-WindowsImage @convertWindowsImageParams -Passthru -Verbose
+}
 
 If (!(Get-VMSwitch | where Name -match 'SwitchLab')){
 New-VMSwitch -Name 'SwitchLAB' -SwitchType Internal
 }
 New-VHD -Path $VHDPath -ParentPath $VHDBasePath -Differencing -OutVariable ChildVHD | out-null
-New-VM -Name $dchost -VHDPath $VHDPath -MemoryStartupBytes 1GB -SwitchName 'SwitchLab' -Generation 2 | out-null
+New-VM -Name $dchost -VHDPath $VHDPath -MemoryStartupBytes 2GB -SwitchName 'SwitchLab' -Generation 2  | out-null
+Set-VM -Name $dchost -ProcessorCount 2
 Start-VM -Name $dchost
 
 $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
@@ -97,7 +102,7 @@ While ($ip.count -lt 2)
     {
         $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
         Write-Output "Czekam na podniesienie VM-ki $dchost"
-        Start-Sleep -Seconds 5 -Verbose
+        Start-Sleep -Seconds 5
     }
 #endregion
 
@@ -146,9 +151,9 @@ New-PSSession -ComputerName '192.168.1.1' -Credential $admincred -OutVariable Se
 Write-Output "Instaluję rolę ADDS i tworzę las $LabName.local"
 Invoke-Command -Session $SesjaDC -ScriptBlock {
     Write-Output "Instaluję ADDS"
-    Install-WindowsFeature -Name AD-Domain-Services | out-null
+    Install-WindowsFeature -Name AD-Domain-Services -IncludeAllSubFeature
     Write-Output "Instaluję las"
-    Install-ADDSForest -DomainName $args[0] -SafeModeAdministratorPassword $args[1] -Force | out-null
+    Install-ADDSForest -DomainName $args[0] -SafeModeAdministratorPassword $args[1] -Force
 } -ArgumentList "$LabName.local", $adpass
 
 
@@ -157,7 +162,7 @@ While ($ip.count -lt 2)
     {
         $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
         Write-Output "Czekam na podniesienie VM-ki $dchost"
-        Start-Sleep -Seconds 5 -Verbose
+        Start-Sleep -Seconds 5 
     }
 
 
@@ -168,11 +173,14 @@ $dhcpUri = "$dchost.$LabName.local"
 Invoke-Command -Session $SesjaADDC -ScriptBlock {
 
     Write-Output "Przestawiam profil sieci"
-    Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private  
+    Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+    Set-NetFirewallProfile -name Domain -Enabled False 
+    Set-NetFirewallProfile -name Private -Enabled False
+
 
     Write-Output "Instaluję rolę DHCP"
     Install-WindowsFeature -Name DHCP -IncludeManagementTools | out-null
-    
+    Start-Sleep -Seconds 10
     $dhcpParams = @{
         StartRange = '192.168.1.100'
         EndRange = '192.168.1.200'
@@ -187,8 +195,19 @@ Invoke-Command -Session $SesjaADDC -ScriptBlock {
     Set-DhcpServerv4OptionValue -DnsServer '192.168.1.1'
     Set-DhcpServerv4OptionValue -Router '192.168.1.1'
     Write-Output "Autoryzuję $using:dhcpUri w AD"
+    Start-Sleep -Seconds 10
     Add-DhcpServerInDC -DnsName $using:dhcpUri
-} -verbose
+}
+
+$ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
+While ($ip.count -lt 2)
+    {
+        $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
+        Write-Output "Czekam na podniesienie VM-ki $dchost"
+        Start-Sleep -Seconds 5 
+    }
+
+Checkpoint-VM -Name $dchost -SnapshotName CzystaAD
 #endregion
 
 #region Tworzymy maszyny klienckie
@@ -232,13 +251,11 @@ param (
         while($ip.Count -lt 2) {
             $ip = (Get-VM -Name $n | Select-Object -ExpandProperty networkadapters).ipaddresses
             Write-Output "Proszę czekać..."
-            Start-Sleep -Seconds 3;
+            Start-Sleep -Seconds 5;
         }
         $ip[0]
     }
     
-    # Return the IPs of the newly created VMs
-    $ipAddresses
 
 }
 Write-Output "Tworzę dodatkowe serwery"
@@ -263,8 +280,9 @@ param (
 )
 
     Foreach -parallel ($computer in $PSComputerName) {
-
+        Start-Sleep -Seconds 10
         Add-Computer -DomainName $DomainName -NewName $IpToNameMapping[$computer] -Credential $DomainCred
+        Start-Sleep -Seconds 10
         Restart-Computer -wait -for PowerShell -Protocol WSMan
     }
 }
@@ -281,5 +299,54 @@ Invoke-Command -Session $Sesja2 {
     Install-WindowsFeature -Name File-Services,FS-FileServer -Restart
 }
 
+#endregion
 
+#region Wypełnianie AD danymi z csv
+$populateAD = {
+Import-Module ActiveDirectory
+$LabN = $using:LabName
+$TABDEPARTMENT = @("Kadry","Zarzad","IT","Ksiegowosc","Handel","Marketing")
+$TABTITLE = @("Pracownik","Kierownik","Dyrektor","Lider","Informatyk","Asystent","Prezes")
+
+# Tworzę strukturę organizacyjną
+$TABDEPARTMENT | % { New-ADOrganizationalUnit -Name $_ -Path "DC=$LabN,DC=local"}
+$TABDEPARTMENT | % { New-ADOrganizationalUnit -Name komputery -Path "OU=$_,DC=$LabN,DC=local"}
+$TABDEPARTMENT | % { New-ADOrganizationalUnit -Name uzytkownicy -Path "OU=$_,DC=$LabN,DC=local"}
+
+$Lista = import-csv C:\names.csv 
+
+@('Company','Department','Title','Name','SamAccountName','UserPrincipalName','Path') | % {$lista | Add-Member -NotePropertyName $_ -NotePropertyValue ''}
+
+$Lista | ForEach-Object {
+    $_.GivenName = $_.GivenName.Trim()
+    $_.Surname = $_.Surname.Trim()
+    $_.Company = $LabN
+    $_.Department = Get-Random $TABDEPARTMENT -OutVariable Dept
+    $_.Title = Get-Random $TABTITLE
+    $_.Name = $_.GivenName + ' ' + $_.Surname
+    $_.SamAccountName = $_.GivenName + $_.Surname
+    $_.UserPrincipalName = $_.SamAccountName + '@' + "$LabN" +'.local'
+    $_.Path = 'OU=Uzytkownicy,OU=' + $Dept + ',DC=' + $LabN +',DC=local'
+}
+
+# Samaccountname nie może być dłuższe niż 20 znaków
+$Lista | ForEach-Object {
+    If ($_.SamAccountName.length -gt 20) {
+        $l = $_.SamAccountName.length - 20
+        $s = $_.Givenname.length - $l
+        $_.SamAccountName = $_.GivenName.Substring(0,$s) + $_.Surname
+
+    }
+}
+
+$Lista | New-ADUser | Out-Null
+}
+
+If (Test-Path $LabPath\names.csv) {
+Write-Output "Nawiązuję połączenie na poświadczeniach domenowych"
+$SesjaADDC = New-PSSession -VMName $dchost -Credential $DomainCred
+
+Copy-Item C:\lab\names.csv -Destination c:\names.csv -ToSession $SesjaADDC
+Invoke-Command -Session $SesjaADDC -ScriptBlock $populateAD
+}
 #endregion
