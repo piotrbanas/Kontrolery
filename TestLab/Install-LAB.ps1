@@ -41,17 +41,7 @@ Param
     
 )
 
-#region Tworzymy dysk bazowy i VM Kontrolera Domeny
-If (!( Get-Module Convert-WindowsImage)) {
-    try {
-        Install-Module Convert-WindowsImage  -Force -ErrorAction Stop
-    }
-    catch {
-        Throw $Error
-    }
-}
-Else {Import-Module Convert-WindowsImage -force}
-
+#region poswiadczenia
 $adminpassfile = "$LabPath\adminpass.txt"
 if (!(Test-Path $adminpassfile)) {
     Read-Host "Podaj hasło dla lokalnego administratora" -AsSecureString | ConvertFrom-SecureString | Out-File "$adminpassfile"
@@ -69,7 +59,18 @@ $admincred = new-object -typename System.Management.Automation.PSCredential -arg
 $adpass = Get-Content -path $adpassfile | ConvertTo-SecureString
 $aduser = "$LabName.local\Administrator"
 $DomainCred = new-object -typename System.Management.Automation.PSCredential -argumentlist $aduser, $adpass
+#endregion
 
+#region Tworzymy dysk bazowy i VM Kontrolera Domeny
+If (!( Get-Module Convert-WindowsImage)) {
+    try {
+        Install-Module Convert-WindowsImage  -Force -ErrorAction Stop
+    }
+    catch {
+        Throw $Error
+    }
+}
+Else {Import-Module Convert-WindowsImage -force}
 
 $dchost = "DC$LabName"
 $VHDBasePath = "$LAbPath\$LabName\VHDs\base\LabServerBase.vhdx"
@@ -106,16 +107,7 @@ While ($ip.count -lt 2)
     }
 #endregion
 
-#region Konfiguracja DC
-Write-Output "Otwieram połączenie do $dchost przez szynę Hyper-V"
-
-try {
-New-PSSession -VMName "$dchost" -Credential $admincred -OutVariable SesjaDC -ErrorAction Stop | out-null
-}
-catch {
- Throw "Nie mogę połączyć z $dchost"
-}
-
+#region konfiguracja Interfejsu wirtualizatora
 Invoke-Command -ScriptBlock {
     $NetAdapter = (Get-Netadapter)[0].Name
     Write-Output "Ustawiam statyczny IP na interfejsie $netadapter"
@@ -131,6 +123,18 @@ Write-Output "Konfiguruję interfejs $($LocalAdapter.Name)"
 New-NetIPAddress -IPAddress '192.168.1.2' -DefaultGateway '192.168.1.1' -PrefixLength 24 -InterfaceIndex $LocalAdapter.InterfaceIndex
 Get-NetConnectionProfile -InterfaceIndex $LocalAdapter.InterfaceIndex | Set-NetConnectionProfile -NetworkCategory Private
 Set-DnsClientServerAddress -InterfaceIndex $LocalAdapter.InterfaceIndex -ServerAddresses '192.168.1.1'
+#endregion
+
+#region Konfiguracja DC
+Write-Output "Otwieram połączenie do $dchost przez szynę Hyper-V"
+
+try {
+New-PSSession -VMName "$dchost" -Credential $admincred -OutVariable SesjaDC -ErrorAction Stop | out-null
+}
+catch {
+ Throw "Nie mogę połączyć z $dchost"
+}
+
 
 Workflow Rename-DC {
 Param(
@@ -141,8 +145,6 @@ Restart-Computer -wait -for PowerShell -Protocol WSMan
 }
 Write-Output "Zmieniam hostname na $dchost"
 Rename-DC -PSComputerName '192.168.1.1' -PSCredential $admincred -NewName "$dchost"
-
-Checkpoint-VM -Name $dchost -SnapshotName BeforeADDS
 
 Write-Output "Nawiązuje ponownie połączenie"
 New-PSSession -ComputerName '192.168.1.1' -Credential $admincred -OutVariable SesjaDC | out-null
@@ -317,6 +319,7 @@ $Lista = import-csv C:\names.csv
 
 @('Company','Department','Title','Name','SamAccountName','UserPrincipalName','Path') | % {$lista | Add-Member -NotePropertyName $_ -NotePropertyValue ''}
 
+#dostosowanie danych z csv
 $Lista | ForEach-Object {
     $_.GivenName = $_.GivenName.Trim()
     $_.Surname = $_.Surname.Trim()
