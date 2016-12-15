@@ -76,6 +76,14 @@ $dchost = "DC$LabName"
 $VHDBasePath = "$LAbPath\$LabName\VHDs\base\LabServerBase.vhdx"
 $VHDPath = "$LabPath\$LabName\VHDs\$dchost.vhdx"
 
+Stop-VM -TurnOff -Name $dchost, Node1, Node2 -Force -ErrorAction SilentlyContinue
+Remove-VM $dchost, Node1, Node2 -Force -ErrorAction SilentlyContinue
+
+Remove-Item $VHDPath -Force -ErrorAction SilentlyContinue
+Remove-Item $LabPath\$LabName\VHDs\Node1.vhdx -force -ErrorAction SilentlyContinue
+Remove-Item $LabPath\$LabName\VHDs\Node2.vhdx -force -ErrorAction SilentlyContinue
+
+
 $convertWindowsImageParams = @{
     SourcePath = "$ISOPath"
     SizeBytes = 25GB
@@ -94,9 +102,9 @@ If (!(Get-VMSwitch | where Name -match 'SwitchLab')){
 New-VMSwitch -Name 'SwitchLAB' -SwitchType Internal
 }
 New-VHD -Path $VHDPath -ParentPath $VHDBasePath -Differencing -OutVariable ChildVHD | out-null
-New-VM -Name $dchost -VHDPath $VHDPath -MemoryStartupBytes 2GB -SwitchName 'SwitchLab' -Generation 2  | out-null
-Set-VM -Name $dchost -ProcessorCount 2
-Start-VM -Name $dchost
+$dcvm = New-VM -Name $dchost -VHDPath $VHDPath -MemoryStartupBytes 2GB -SwitchName 'SwitchLab' -Generation 2
+Set-VM $dcvm -ProcessorCount 2
+Start-VM $dcvm
 
 $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
 While ($ip.count -lt 2)
@@ -108,19 +116,10 @@ While ($ip.count -lt 2)
 #endregion
 
 #region konfiguracja Interfejsu wirtualizatora
-Invoke-Command -ScriptBlock {
-    $NetAdapter = (Get-Netadapter)[0].Name
-    Write-Output "Ustawiam statyczny IP na interfejsie $netadapter"
-    New-NetIPAddress -IPAddress '192.168.1.1' -PrefixLength 24 -InterfaceIndex (Get-Netadapter)[0].InterfaceIndex | out-null
-    Write-Output "Uruchamiam PSRemoting"
-    Enable-PSRemoting -Force
-    Write-Output "Otwieram WSMan"
-    Set-Item WSMan:\localhost\Client\TrustedHosts -Value * -Force
-} -Session $SesjaDC
 
 $LocalAdapter = Get-NetAdapter "*SwitchLab*"
 Write-Output "Konfiguruję interfejs $($LocalAdapter.Name)"
-New-NetIPAddress -IPAddress '192.168.1.2' -DefaultGateway '192.168.1.1' -PrefixLength 24 -InterfaceIndex $LocalAdapter.InterfaceIndex
+New-NetIPAddress -IPAddress '192.168.1.2' -DefaultGateway '192.168.1.1' -PrefixLength 24 -InterfaceIndex $LocalAdapter.InterfaceIndex -AddressFamily IPv4
 Get-NetConnectionProfile -InterfaceIndex $LocalAdapter.InterfaceIndex | Set-NetConnectionProfile -NetworkCategory Private
 Set-DnsClientServerAddress -InterfaceIndex $LocalAdapter.InterfaceIndex -ServerAddresses '192.168.1.1'
 #endregion
@@ -129,10 +128,21 @@ Set-DnsClientServerAddress -InterfaceIndex $LocalAdapter.InterfaceIndex -ServerA
 Write-Output "Otwieram połączenie do $dchost przez szynę Hyper-V"
 
 try {
-New-PSSession -VMName "$dchost" -Credential $admincred -OutVariable SesjaDC -ErrorAction Stop | out-null
+$SesjaDC = New-PSSession -VMId $dcvm.id -Credential $admincred -ErrorAction Stop
 }
 catch {
- Throw "Nie mogę połączyć z $dchost"
+ Throw $error
+ #Throw "Nie mogę połączyć z $dchost"
+}
+
+Invoke-Command -Session $SesjaDC -ScriptBlock {
+    $NetAdapter = (Get-Netadapter)[0].Name
+    Write-Output "Ustawiam statyczny IP na interfejsie $netadapter"
+    New-NetIPAddress -IPAddress '192.168.1.1' -PrefixLength 24 -InterfaceIndex (Get-Netadapter)[0].InterfaceIndex | out-null
+    Write-Output "Uruchamiam PSRemoting"
+    Enable-PSRemoting -Force
+    Write-Output "Otwieram WSMan"
+    Set-Item WSMan:\localhost\Client\TrustedHosts -Value * -Force
 }
 
 
@@ -167,26 +177,63 @@ While ($ip.count -lt 2)
         Start-Sleep -Seconds 5 
     }
 
+Write-Output "Restartuję serwer po zainstalowaniu ADDS"
+Restart-Computer -Force -ComputerName '192.168.1.1' -Credential $DomainCred -Protocol WSMan -wait -for PowerShell
 
 Write-Output "Nawiązuję połączenie na poświadczeniach domenowych"
-New-PSSession -VMName $dchost -Credential $DomainCred -OutVariable SesjaADDC
-
+try {
+    $sesjaADDC = New-PSSession -VMId $dcvm.id -Credential $DomainCred
+}
+catch {
+    throw "Nie mogę nawiązać połączenia "
+}
 $dhcpUri = "$dchost.$LabName.local"
+
+$adcheck = Invoke-Command -Session $sesjaADDC -ScriptBlock { (Get-ADDomainController).Enabled}
+While ($adcheck -ne $true) {
+    $adcheck = Invoke-Command -Session $sesjaADDC -ScriptBlock { (Get-ADDomainController).Enabled}
+    Write-Output "Czekam na dostępność ADDS"
+    Start-Sleep -Seconds 10
+}
+
 Invoke-Command -Session $SesjaADDC -ScriptBlock {
 
     Write-Output "Przestawiam profil sieci"
     Get-NetConnectionProfile | Set-NetConnectionProfile -NetworkCategory Private
+    Start-Sleep -Seconds 10
     Set-NetFirewallProfile -name Domain -Enabled False 
     Set-NetFirewallProfile -name Private -Enabled False
+}
 
 
-    Write-Output "Instaluję rolę DHCP"
-    Install-WindowsFeature -Name DHCP -IncludeManagementTools | out-null
+
+Install-WindowsFeature -ComputerName '192.168.1.1' -Credential $DomainCred -Name DHCP
+Start-Sleep -Seconds 30
+Write-Output "Restartuję serwer po zainstalowaniu DHCP"
+Restart-Computer -ComputerName '192.168.1.1' -Credential $DomainCred -Protocol WSMan -wait -for PowerShell
+
+Write-Output "Nawiązuję połączenie na poświadczeniach domenowych"
+try {
+    $sesjaADDC = New-PSSession -VMId $dcvm.id -Credential $DomainCred
+}
+catch {
+    throw "Nie mogę nawiązać połączenia "
+}
+$dhcpUri = "$dchost.$LabName.local"
+
+$adcheck = Invoke-Command -Session $sesjaADDC -ScriptBlock { (Get-ADDomainController).Enabled}
+While ($adcheck -ne $true) {
+    $adcheck = Invoke-Command -Session $sesjaADDC -ScriptBlock { (Get-ADDomainController).Enabled}
+    Write-Output "Czekam na dostępność ADDS"
     Start-Sleep -Seconds 10
+}
+
+
+Invoke-Command -Session $sesjaADDC {
     $dhcpParams = @{
         StartRange = '192.168.1.100'
         EndRange = '192.168.1.200'
-        Name = $using:LabName+'Scope'
+        Name = 'LabScope'
         State = 'Active'
         LeaseDuration = (New-TimeSpan -Days 365)
         SubnetMask = '255.255.255.0'
@@ -194,22 +241,34 @@ Invoke-Command -Session $SesjaADDC -ScriptBlock {
     }
     Write-Output "Konfiguruję rolę DHCP"
     Add-DhcpServerv4Scope @dhcpParams
-    Set-DhcpServerv4OptionValue -DnsServer '192.168.1.1'
-    Set-DhcpServerv4OptionValue -Router '192.168.1.1'
-    Write-Output "Autoryzuję $using:dhcpUri w AD"
     Start-Sleep -Seconds 10
-    Add-DhcpServerInDC -DnsName $using:dhcpUri
+    Set-DhcpServerv4OptionValue -DnsServer '192.168.1.1'
+    Start-Sleep -Seconds 10
+    Set-DhcpServerv4OptionValue -Router '192.168.1.1'
+    Start-Sleep -Seconds 10
+
 }
 
-$ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
-While ($ip.count -lt 2)
-    {
-        $ip = (Get-VM -Name $dchost | Select-Object -ExpandProperty networkadapters).ipaddresses
-        Write-Output "Czekam na podniesienie VM-ki $dchost"
-        Start-Sleep -Seconds 5 
-    }
 
-Checkpoint-VM -Name $dchost -SnapshotName CzystaAD
+Remove-PSSession * | Out-Null
+Write-Output "Nawiązuję połączenie na poświadczeniach domenowych"
+try {
+    $sesjaADDC = New-PSSession -VMId $dcvm.id -Credential $DomainCred
+}
+catch {
+    throw "Nie mogę nawiązać połączenia "
+}
+
+Write-Output "Autoryzuję DHCP w AD"
+Try {
+    Invoke-Command -Session $sesjaADDC -ScriptBlock {
+        Add-DhcpServerInDC
+    } -ErrorAction Stop
+}
+catch {
+    Throw "Błąd autoryzacji DHCP w AD"
+}
+
 #endregion
 
 #region Tworzymy maszyny klienckie
@@ -266,8 +325,16 @@ Install-VM -SourceVhdPath $VHDBasePath -DestinationVhdPath $LabPath\$LAbName\VHD
 
 #region Konfiguracja serwerów
 Write-Output "Mapuję nazwy maszyn wirtualnych z ich adresami IP"
-$IpToNameMapping = @{}
-Get-VM -Name NODE1,NODE2 | ForEach-Object { $IpToNameMapping.Add($_.NetworkAdapters.IPAddresses[0],$_.name) }
+
+$nameToIP = foreach ($n in @('Node1', 'Node2')) {
+    $v = Get-vm -name $n
+    $props = @{
+        Nazwa = $n
+        Adres = $v.NetworkAdapters.IPAddresses[0]
+    }
+    $obj = New-Object -TypeName PSObject -Property $props
+    Write-Output $obj
+}
 
 
 workflow Join-Domain {
@@ -275,7 +342,7 @@ param (
     [Parameter(Mandatory=$True, 
                Position=0)]
     [ValidateNotNull()]
-    [hashtable]$IpToNameMapping,
+    [System.Object]$nameToIp,
     [pscredential]$DomainCred,
     [string]$DomainName
 
@@ -283,20 +350,20 @@ param (
 
     Foreach -parallel ($computer in $PSComputerName) {
         Start-Sleep -Seconds 10
-        Add-Computer -DomainName $DomainName -NewName $IpToNameMapping[$computer] -Credential $DomainCred
+        Add-Computer -DomainName $DomainName -NewName ($nameToIp | where Adres -eq $computer).nazwa -Credential $DomainCred
         Start-Sleep -Seconds 10
         Restart-Computer -wait -for PowerShell -Protocol WSMan
     }
 }
 Write-Output "Dodaję serwery do AD"
-Join-Domain -IpToNameMapping $IpToNameMapping -DomainCred $DomainCred -DomainName "$LabName.local" -PSComputerName $IpToNameMapping.keys -PSCredential $admincred
+Join-Domain -nameToIp $nameToIP -DomainCred $DomainCred -DomainName "$LabName.local" -PSComputerName $nameToIP.Adres -PSCredential $admincred
 
-New-PSSession -ComputerName ($IpToNameMapping | Select-Object -ExpandProperty keys | Sort-Object)[0] -Credential $DomainCred -OutVariable Sesja1
+New-PSSession -ComputerName ($nameToIP | where Nazwa -eq 'Node1').adres -Credential $DomainCred -OutVariable Sesja1
 Invoke-Command -Session $Sesja1 {
     Install-WindowsFeature -Name web-server,web-asp,web-asp-net45 -Restart
 }
 
-New-PSSession -ComputerName ($IpToNameMapping | Select-Object -ExpandProperty keys | Sort-Object)[1] -Credential $DomainCred -OutVariable Sesja2
+New-PSSession -ComputerName ($nameToIP | where Nazwa -eq 'Node2').adres -Credential $DomainCred -OutVariable Sesja2
 Invoke-Command -Session $Sesja2 {
     Install-WindowsFeature -Name File-Services,FS-FileServer -Restart
 }
@@ -347,9 +414,13 @@ $Lista | New-ADUser | Out-Null
 
 If (Test-Path $LabPath\names.csv) {
 Write-Output "Nawiązuję połączenie na poświadczeniach domenowych"
-$SesjaADDC = New-PSSession -VMName $dchost -Credential $DomainCred
+$SesjaADDC = New-PSSession -VMId $dcvm.id -Credential $DomainCred
 
 Copy-Item C:\lab\names.csv -Destination c:\names.csv -ToSession $SesjaADDC
 Invoke-Command -Session $SesjaADDC -ScriptBlock $populateAD
 }
 #endregion
+
+# testy
+.$LabPath\Install-LAB.tests.ps1 -LabName $LabName -credential $DomainCred
+
