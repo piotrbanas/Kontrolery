@@ -1,6 +1,6 @@
-Skrypt bash formatuje wyniki skanowania nmap do formatu "OK"/"BŁĄD".
+Skrypt bash formatuje wyniki skanowania nmap do formatu "OK"/"BŁĄD". Ponieważ potok w świecie unixowym opiera sie na strumieniowaniu danych, jesteśmy zmuszeni wykorzystywać narzędzia manipulacji tekstu - grep, sed, czy awk.
 
-To samo w Powershellu:
+W Powershellu potok przekazuje między komendami obiekty .NET-owe, dzięki czemu mamy większą swobodę łączenia komend i manipulowania wynikiem:
 
 New-PSDrive -PSProvider FileSystem -Name Skany -Root '10.101.33.31\Backup'
 
