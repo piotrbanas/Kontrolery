@@ -3,7 +3,7 @@ Przykładowe skrypty sterujące, tzw. "kontrolery" wg. modelu narzędzi administ
 
 * Kontrolery to najczęściej zlepek cmdletów - standardowych oraz własnych, zdefiniowanych w module narzędziowym.
 * Są specyficzne dla określonego procesu lub zadania i zwykle nie muszą przestrzegać jakiejś określonej struktury - mają "po prostu działać".
-* Jesli jakaś częśc skryptu ma być zuniwersalizowana, powinna zostać przesunięta do modułu z funkcjami narzędziowymi.
+* Jeśli jakaś częśc skryptu ma być zuniwersalizowana, powinna zostać przesunięta do modułu z funkcjami narzędziowymi.
 
 Przykładowe kontrolery:
 
