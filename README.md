@@ -11,9 +11,9 @@ Przykładowe kontrolery:
 
 <b>Panel Kontrolny</b> - skrypt zbiera informacje o przepływach danych między systemami i publikuje je w postaci pliku html.
 
-<b>Procedura Awaryjna</b> - skrypt konfiguruje awaryjny serwer aplikacji. Na koniec przeprowadza proste testy akceptacyjne (Pester), które wysyła do Administracji. Zawiera skrypt wstępnie konfigurujący serwer za pomocą DSC (Desired State Configuration).
+<b>Procedura Awaryjna</b> - skrypt konfiguruje awaryjny serwer aplikacji (XAMPP). Na koniec przeprowadza testy akceptacyjne (Pester), które wysyła do Administracji. Zawiera skrypt wstępnie konfigurujący serwer za pomocą DSC (Desired State Configuration).
 
-<b>Przechwytywanie Artykułów</b> - narzędzie przechwytuje z trafiającego do sklepu cennika obserwowane akrtykuły i podmienia ich nazwy wg. wzoru.
+<b>Przechwytywanie Artykułów</b> - narzędzie przechwytuje z trafiającego do sklepu cennika obserwowane akrtykuły i podmienia ich właściwości wg. wzoru z pliku csv.
 
 <b>Konfiguracja Plikowa</b> - narzędzie umożliwia Operatorom masową konfigurację wag za pomocą plików xml wgrywanych do urządzeń. Wyświetla menu wyboru. Do porównania zawartości pików używa funkcji hashującej.
 
