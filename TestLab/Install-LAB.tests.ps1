@@ -60,3 +60,13 @@ Describe "Serwer www" {
         }
     }
 }
+
+Describe "Active Directorey Domain Services" {
+    
+    It "Odpowiedź z kontrolera Domeny" {
+        Invoke-Command -Session $sesjaDC -ScriptBlock { (Get-ADDomainController).Enabled} | Should Be "True"
+    }
+    It "Uzytkownicy zaimportowani" {
+        Invoke-Command -Session $sesjadc -ScriptBlock { (Get-ADUser -Filter * | Measure-Object).count } | Should BeGreaterThan  50
+    }
+}
