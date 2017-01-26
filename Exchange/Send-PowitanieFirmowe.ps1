@@ -1,4 +1,4 @@
-﻿<#
+ <#
 .SYNOPSIS             
 Skrypt wysyła powitanie firmowe dla nowo zatrudnionych Pań
 .DESCRIPTION            
@@ -7,9 +7,9 @@ Używa Implicit Remoting do zaimportowania Exchange Management Shell
 .PARAMETER exserver
 Nazwa serwera Exchange
 .PARAMETER plik
-Ścieżka do pliku tekstowego z treścią powitania
+Ściezka do pliku tekstowego z trescia powitania
 .EXAMPLE
-Send-PowitanieFirmowe.ps1 -exserver EX16 -tekst 'C:\temp\powitanie.txt'
+Send-PowitanieFirmowe.ps1 -exserver EX16 -plik 'C:\temp\powitanie.txt'
 .NOTES
 Author: Piotr Witold Banaś
 piotrbanas@xper.pl
