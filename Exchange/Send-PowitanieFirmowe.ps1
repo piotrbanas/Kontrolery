@@ -20,11 +20,11 @@ piotrbanas@xper.pl
 Param
 (
     [parameter(Mandatory)]
-    [String[]]$exserver,
+    [String]$exserver,
 
     [parameter(Mandatory)]
     [ValidateScript({Test-Path $_})]
-    [String[]]$plik
+    [String]$plik
 
 )
 Write-Verbose "Uzyskuje nazwe domeny"
