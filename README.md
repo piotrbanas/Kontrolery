@@ -18,3 +18,5 @@ Przykładowe kontrolery:
 <b>Konfiguracja Plikowa</b> - narzędzie umożliwia Operatorom masową konfigurację wag za pomocą plików xml wgrywanych do urządzeń. Wyświetla menu wyboru. Do porównania zawartości pików używa funkcji hashującej.
 
 <b>Monitoring</b> - Skaner sieciowy urządzeń. Dane z poprzednich skanów trzyma w plikach xml. Dla urządzeń niewidocznych od 3 godzin tworzy zgłoszenie w HelpDesku.
+
+<b>S3Uploader</b> - Graficzny wybór i wysyłka plików do S3.
